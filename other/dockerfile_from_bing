@@ -1,0 +1,85 @@
+# Use ubuntu as base image
+FROM ubuntu
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    unzip \
+    xz-utils \
+    zip \
+    libglu1-mesa
+
+# Download Flutter SDK
+RUN git clone https://github.com/flutter/flutter.git -b stable
+
+# Set environment variables
+ENV PATH=$PATH:/flutter/bin
+
+# Enable web and iOS support
+RUN flutter channel beta && flutter upgrade && flutter config --enable-web --enable-ios
+
+# Add your app files
+ADD . /app
+
+# Set working directory
+WORKDIR /app
+
+# Get packages 
+RUN flutter pub get 
+
+# Build your app for web 
+RUN flutter build web --release 
+
+# Create a new stage for Android 
+FROM ubuntu AS android 
+
+# Copy Flutter SDK from previous stage 
+COPY --from=0 /flutter /flutter 
+
+# Set environment variables 
+ENV PATH=$PATH:/flutter/bin 
+
+# Download Android SDK (you can change the version if needed) 
+RUN curl -o sdk.zip https://dl.google.com/android/repository/sdk-tools-linux-4333796.zip && \ 
+    unzip sdk.zip && rm sdk.zip 
+
+ENV ANDROID_HOME=$PWD/tools 
+ENV PATH=$PATH:$ANDROID_HOME/bin:$ANDROID_HOME/platform-tools 
+
+# Accept licenses and install build tools and platforms (you can change the version if needed) 
+RUN yes | sdkmanager --licenses && \ 
+    sdkmanager "build-tools;28.0.3" "platforms;android-28" 
+
+ # Copy app files from previous stage  
+ COPY --from=0 /app /app 
+ 
+ # Set working directory  
+ WORKDIR /app 
+ 
+ # Build your app for Android  
+ RUN flutter build apk --release  
+
+ # Create a new stage for iOS  
+ FROM Xcode:7.0 AS ios 
+ 
+ # Install dependencies (you may need more depending on your project)  
+ RUN brew install cocoapods  
+  
+ # Copy Flutter SDK from previous stage  
+ COPY --from=0 /flutter /flutter  
+  
+ # Set environment variables  
+ ENV PATH=$PATH:/flutter/bin  
+  
+ # Copy app files from previous stage  
+ COPY --from=0 /app /app  
+  
+ # Set working directory  
+ WORKDIR /app  
+  
+  # Generate XCode project   
+  RUN flutter build ios --no-codesign   
+   
+  # Build your app for iOS using xcodebuild command (you need to specify project name, scheme name, etc.)   
+  RUN xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO   
